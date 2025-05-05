@@ -1,0 +1,4 @@
+Pillow==10.2.0
+tkinter
+langchain
+openai 
