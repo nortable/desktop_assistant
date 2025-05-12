@@ -20,9 +20,21 @@ A modern, interactive desktop assistant with long-term memory, chat history, and
    cd desktop_assistant
    ```
 
-2. **Install requirements**
+2. **Create and activate virtual environment**
+   ```bash
+   # On Windows
+   python -m venv venv
+   .\venv\Scripts\activate
+
+   # On macOS/Linux
+   python3 -m venv venv
+   source venv/bin/activate
+   ```
+
+3. **Install requirements**
    ```bash
    pip install -r requirements.txt
+   ```
    ```
 
 3. **Register and set your OpenRouter API key**
