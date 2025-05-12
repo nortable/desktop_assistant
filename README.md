@@ -35,7 +35,6 @@ A modern, interactive desktop assistant with long-term memory, chat history, and
    ```bash
    pip install -r requirements.txt
    ```
-   ```
 
 3. **Register and set your OpenRouter API key**
    - Go to [OpenRouter.ai](https://openrouter.ai/) and sign up for an account.
