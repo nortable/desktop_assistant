@@ -18,7 +18,7 @@ class State(TypedDict):
     metadata: Dict[str, Any]
 
 class ThreadedAgent:
-    def __init__(self, model_name: str = "google/gemini-2.5-flash-preview"):
+    def __init__(self, model_name: str = "google/gemini-2.0-flash-exp:free"):
         self.store = InMemoryStore()
         self.api_key = "sk-"
         self.model = model_name
