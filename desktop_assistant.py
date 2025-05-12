@@ -10,26 +10,25 @@ class DesktopAssistant:
     def __init__(self, root):
         self.root = root
         self.root.title("Desktop Assistant")
-        self.root.attributes('-topmost', True)  # Keep window on top
+        self.root.attributes('-topmost', True)  
         
         # Initialize the agent
         self.agent = ThreadedAgent()
         self.current_thread_id = None
         
-        # Load GIFs
+
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        
         self.gifs = {
-            'normal': 'assets/role4/gif1.gif',
-            'chat': 'assets/role4/gif2.gif'
+            'normal': os.path.join(script_dir, 'assets', 'role4', 'gif1.gif'),
+            'chat': os.path.join(script_dir, 'assets', 'role4', 'gif2.gif')
         }
         self.current_state = 'normal'
         
-        # Create the main window
         self.create_main_window()
-        
-        # Create right-click menu
+
         self.create_context_menu()
         
-        # Bind right-click event
         self.root.bind('<Button-3>', self.show_context_menu)
         
     def create_main_window(self):
@@ -92,6 +91,11 @@ class DesktopAssistant:
         self.chat_history = tk.Text(history_frame, wrap=tk.WORD, state=tk.DISABLED)
         self.chat_history.pack(fill=tk.BOTH, expand=True)
         
+        # Tag config for user and assistant
+        self.chat_history.tag_configure("user", foreground="blue", justify="right", font=("Arial", 12, "bold"), lmargin1=80, lmargin2=80, rmargin=10, spacing3=10)
+        self.chat_history.tag_configure("assistant", foreground="green", justify="left", font=("Arial", 12), lmargin1=10, lmargin2=10, rmargin=80, spacing3=10)
+        self.chat_history.tag_configure("system", foreground="gray", font=("Arial", 11, "italic"), spacing3=10)
+        
         # Create scrollbar for chat history
         scrollbar = ttk.Scrollbar(history_frame, command=self.chat_history.yview)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
@@ -119,7 +123,11 @@ class DesktopAssistant:
         # Initialize thread if not exists
         if not self.current_thread_id:
             self.current_thread_id = str(hash("initial"))
-            
+        
+        # Insert default welcome message from assistant (English)
+        welcome_message = "Hello! I am your desktop assistant. How can I help you today?"
+        self.update_chat_history(welcome_message, sender="assistant")
+        
     def send_message(self):
         message = self.message_entry.get().strip()  # Get and strip whitespace
         if message:
@@ -127,13 +135,13 @@ class DesktopAssistant:
             self.message_entry.delete(0, tk.END)
             
             # Add user message to chat history
-            self.update_chat_history("You: " + message)
+            self.update_chat_history(message, sender="user")
             
             # Disable input while processing
             self.message_entry.config(state='disabled')
             
             # Show typing indicator
-            self.update_chat_history("Assistant: Typing...")
+            self.update_chat_history("Typing...", sender="assistant_typing")
             
             # Process message in background
             self.root.after(100, lambda: self.process_message(message))
@@ -150,9 +158,8 @@ class DesktopAssistant:
             # Remove typing indicator and show response
             self.chat_history.config(state=tk.NORMAL)
             self.chat_history.delete("end-2l", "end-1l")
-            self.chat_history.insert(tk.END, f"Assistant: {response}\n")
-            self.chat_history.see(tk.END)
             self.chat_history.config(state=tk.DISABLED)
+            self.update_chat_history(response, sender="assistant")
             
             # Reset input
             self.message_entry.delete(0, tk.END)
@@ -162,16 +169,21 @@ class DesktopAssistant:
         except Exception as e:
             self.chat_history.config(state=tk.NORMAL)
             self.chat_history.delete("end-2l", "end-1l")
-            self.chat_history.insert(tk.END, f"Assistant: Sorry, an error occurred: {str(e)}\n")
-            self.chat_history.see(tk.END)
             self.chat_history.config(state=tk.DISABLED)
-            
+            self.update_chat_history(f"Sorry, an error occurred: {str(e)}", sender="assistant")
             self.message_entry.config(state='normal')
             self.message_entry.focus_set()
         
-    def update_chat_history(self, message):
+    def update_chat_history(self, message, sender="user"):
         self.chat_history.config(state=tk.NORMAL)
-        self.chat_history.insert(tk.END, message + "\n")
+        if sender == "user":
+            self.chat_history.insert(tk.END, f"You: {message}\n", "user")
+        elif sender == "assistant":
+            self.chat_history.insert(tk.END, f"Assistant: {message}\n", "assistant")
+        elif sender == "assistant_typing":
+            self.chat_history.insert(tk.END, f"Assistant: {message}\n", "system")
+        else:
+            self.chat_history.insert(tk.END, message + "\n", "system")
         self.chat_history.see(tk.END)
         self.chat_history.config(state=tk.DISABLED)
         

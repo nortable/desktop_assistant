@@ -17,7 +17,7 @@ class State(TypedDict):
 class ThreadedAgent:
     def __init__(self, model_name: str = "google/gemini-2.5-flash-preview"):
         self.store = InMemoryStore()
-        self.api_key = "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"
+        self.api_key = "sk-"
         self.model = model_name
         self.base_url = "https://openrouter.ai/api/v1"
         self.client = OpenAI(base_url=self.base_url, api_key=self.api_key)
