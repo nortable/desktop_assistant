@@ -8,6 +8,9 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.message import add_messages
 from langchain.storage import InMemoryStore
 from openai import OpenAI
+import datetime
+import os
+import glob
 
 class State(TypedDict):
     messages: Annotated[list, add_messages]
@@ -25,6 +28,40 @@ class ThreadedAgent:
         
         # Define the agent's workflow
         self.workflow = self._create_workflow()
+        
+        # Load previous conversations
+        self.load_previous_conversations()
+        
+    def load_previous_conversations(self):
+        """Load previous conversations from JSON files"""
+        summaries_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'summaries')
+        if not os.path.exists(summaries_dir):
+            return
+
+        # Get all summary files
+        summary_files = glob.glob(os.path.join(summaries_dir, 'conversation_summary_*.json'))
+        
+        for file_path in summary_files:
+            try:
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    summary_data = json.load(f)
+                
+                # Extract thread_id from filename
+                thread_id = os.path.splitext(os.path.basename(file_path))[0]
+                
+                # Convert messages back to LangChain message objects
+                messages = []
+                for msg in summary_data.get('messages', []):
+                    if msg['role'] == 'user':
+                        messages.append(HumanMessage(content=msg['content']))
+                    elif msg['role'] == 'assistant':
+                        messages.append(AIMessage(content=msg['content']))
+                
+                # Store in memory
+                self.store.mset([(f"thread_{thread_id}", {"messages": messages})])
+                
+            except Exception as e:
+                print(f"Error loading conversation from {file_path}: {str(e)}")
         
     def _create_workflow(self) -> StateGraph:
         # Create the graph
@@ -129,4 +166,84 @@ class ThreadedAgent:
         
     def clear_thread(self, thread_id: str):
         """Clear the conversation history for a thread"""
-        self.store.mset([(f"thread_{thread_id}", {"messages": []})]) 
+        self.store.mset([(f"thread_{thread_id}", {"messages": []})])
+
+    async def generate_summary(self, thread_id: str) -> dict:
+        """Generate a summary of the conversation and return as a dictionary"""
+        history = self.get_thread_history(thread_id)
+        
+        # Prepare messages for summary
+        messages = []
+        for msg in history:
+            if isinstance(msg, HumanMessage):
+                messages.append({"role": "user", "content": msg.content})
+            elif isinstance(msg, AIMessage):
+                messages.append({"role": "assistant", "content": msg.content})
+        
+        # Add system message for summary generation
+        system_message = {
+            "role": "system",
+            "content": """You are a conversation analyzer. Please analyze the conversation and provide a structured summary in English.
+            Format your response as a JSON object with the following structure:
+            {
+                "main_topics": ["topic1", "topic2", ...],
+                "key_decisions": ["decision1", "decision2", ...],
+                "important_information": ["info1", "info2", ...],
+                "action_items": ["action1", "action2", ...],
+                "overall_summary": "A brief paragraph summarizing the entire conversation"
+            }
+            
+            Guidelines:
+            1. Always provide at least one item in each array
+            2. Keep the overall_summary concise but informative
+            3. Focus on extracting meaningful information from the conversation
+            4. Ensure all content is in English and maintain a professional tone
+            5. If a category has no relevant items, include a placeholder like "No specific [category] identified"
+            """
+        }
+        messages.insert(0, system_message)
+        
+        try:
+            # Generate summary using OpenRouter API
+            completion = self.client.chat.completions.create(
+                model=self.model,
+                messages=messages,
+                max_tokens=2000,  # Increased token limit for longer summaries
+                temperature=0.7   # Add some creativity to the summary
+            )
+            
+            # Parse the summary response
+            summary_text = completion.choices[0].message.content
+            try:
+                summary_dict = json.loads(summary_text)
+            except json.JSONDecodeError:
+                # If the response isn't valid JSON, create a structured summary
+                summary_dict = {
+                    "main_topics": ["No specific topics identified"],
+                    "key_decisions": ["No specific decisions identified"],
+                    "important_information": ["No specific information identified"],
+                    "action_items": ["No specific actions identified"],
+                    "overall_summary": summary_text
+                }
+            
+            # Add the original messages and timestamp
+            summary_dict["messages"] = messages[1:]  # Exclude system message
+            summary_dict["timestamp"] = str(datetime.datetime.now())
+            
+            # Remove raw_messages if it exists to avoid duplication
+            if "raw_messages" in summary_dict:
+                del summary_dict["raw_messages"]
+            
+            return summary_dict
+            
+        except Exception as e:
+            return {
+                "error": str(e),
+                "messages": messages[1:],
+                "timestamp": str(datetime.datetime.now()),
+                "main_topics": ["Error occurred during summary generation"],
+                "key_decisions": ["No decisions could be extracted"],
+                "important_information": ["No information could be extracted"],
+                "action_items": ["No actions could be extracted"],
+                "overall_summary": f"Error occurred while generating summary: {str(e)}"
+            } 
