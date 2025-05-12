@@ -14,8 +14,8 @@ A modern, interactive desktop assistant with long-term memory, chat history, and
 
 1. **Clone the repository**
    ```bash
-   git clone <your-repo-url>
-   cd <your-repo-directory>
+   git clone https://github.com/nortable/desktop_assistant.git
+   cd desktop_assistant
    ```
 
 2. **Install requirements**
