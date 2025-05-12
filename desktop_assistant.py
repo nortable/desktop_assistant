@@ -18,6 +18,7 @@ class DesktopAssistant:
         # Initialize the agent
         self.agent = ThreadedAgent()
         self.current_thread_id = None
+        self.unsaved_changes = False  # Track if there are unsaved changes
         
         # Create summaries directory if it doesn't exist
         self.summaries_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'summaries')
@@ -148,57 +149,37 @@ class DesktopAssistant:
         new_conv_button = ttk.Button(left_panel, text="New Conversation", command=self.start_new_conversation)
         new_conv_button.pack(pady=5)
         
-        # Initialize thread if not exists
-        if not self.current_thread_id:
-            self.current_thread_id = str(hash("initial"))
+        # Do not auto-generate thread_id here
+        # Only set thread_id when starting a new conversation or loading from history
         
         # Load conversation history into listbox
         self.load_conversation_list()
         
-        # Insert default welcome message from assistant (English)
-        welcome_message = "Hello! I am your desktop assistant. How can I help you today?"
-        self.update_chat_history(welcome_message, sender="assistant")
+        # Insert default welcome message from assistant (English) if no thread is loaded
+        if not self.current_thread_id:
+            self.current_thread_id = str(hash(str(datetime.datetime.now())))
+            welcome_message = "Hello! I am your desktop assistant. How can I help you today?"
+            self.update_chat_history(welcome_message, sender="assistant")
         
     def load_conversation_list(self):
-        """Load conversation history into the listbox"""
+        """Load conversation history into the listbox, using thread numbers only."""
         self.history_listbox.delete(0, tk.END)
         summaries_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'summaries')
         if not os.path.exists(summaries_dir):
             return
 
-        summary_files = glob.glob(os.path.join(summaries_dir, 'conversation_summary_*.json'))
-        for file_path in sorted(summary_files, reverse=True):
-            try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    summary_data = json.load(f)
-                
-                # Get timestamp from filename
-                timestamp = os.path.basename(file_path).replace('conversation_summary_', '').replace('.json', '')
-                date_str = f"{timestamp[:8]} {timestamp[9:11]}:{timestamp[11:13]}"
-                
-                # Get first user message as preview
-                preview = "New Conversation"
-                for msg in summary_data.get('messages', []):
-                    if msg['role'] == 'user':
-                        preview = msg['content'][:30] + "..." if len(msg['content']) > 30 else msg['content']
-                        break
-                
-                self.history_listbox.insert(tk.END, f"{date_str} - {preview}")
-                
-            except Exception as e:
-                print(f"Error loading conversation preview from {file_path}: {str(e)}")
+        summary_files = sorted(glob.glob(os.path.join(summaries_dir, 'thread_*.json')), reverse=True)
+        self.summary_files = summary_files  # 保存顺序，供选中时查找
+        for idx, file_path in enumerate(summary_files, 1):
+            self.history_listbox.insert(tk.END, f"Thread {idx}")
 
     def load_selected_conversation(self, event):
         """Load the selected conversation from history"""
         selection = self.history_listbox.curselection()
         if not selection:
             return
-            
-        # Get the selected file
-        summaries_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'summaries')
-        summary_files = sorted(glob.glob(os.path.join(summaries_dir, 'conversation_summary_*.json')), reverse=True)
-        selected_file = summary_files[selection[0]]
-        
+
+        selected_file = self.summary_files[selection[0]]
         try:
             with open(selected_file, 'r', encoding='utf-8') as f:
                 summary_data = json.load(f)
@@ -216,7 +197,22 @@ class DesktopAssistant:
                     self.update_chat_history(msg['content'], sender="assistant")
             
             # Update current thread ID
-            self.current_thread_id = os.path.splitext(os.path.basename(selected_file))[0]
+            # Extract thread_id from filename
+            basename = os.path.basename(selected_file)
+            if basename.startswith('thread_') and basename.endswith('.json'):
+                self.current_thread_id = basename[len('thread_'):-len('.json')]
+            else:
+                self.current_thread_id = os.path.splitext(basename)[0]
+            self.unsaved_changes = False
+
+            # Restore messages to agent memory
+            messages = []
+            for msg in summary_data.get('messages', []):
+                if msg['role'] == 'user':
+                    messages.append(HumanMessage(content=msg['content']))
+                elif msg['role'] == 'assistant':
+                    messages.append(AIMessage(content=msg['content']))
+            self.agent.store.mset([(f"thread_{self.current_thread_id}", {"messages": messages})])
             
         except Exception as e:
             messagebox.showerror("Error", f"Failed to load conversation: {str(e)}")
@@ -224,6 +220,7 @@ class DesktopAssistant:
     def start_new_conversation(self):
         """Start a new conversation"""
         self.current_thread_id = str(hash(str(datetime.datetime.now())))
+        self.unsaved_changes = True
         
         # Clear chat history
         self.chat_history.config(state=tk.NORMAL)
@@ -233,7 +230,7 @@ class DesktopAssistant:
         # Show welcome message
         welcome_message = "Hello! I am your desktop assistant. How can I help you today?"
         self.update_chat_history(welcome_message, sender="assistant")
-        
+
     def send_message(self):
         message = self.message_entry.get().strip()  # Get and strip whitespace
         if message:
@@ -242,6 +239,7 @@ class DesktopAssistant:
             
             # Add user message to chat history
             self.update_chat_history(message, sender="user")
+            self.unsaved_changes = True
             
             # Disable input while processing
             self.message_entry.config(state='disabled')
@@ -251,7 +249,7 @@ class DesktopAssistant:
             
             # Process message in background
             self.root.after(100, lambda: self.process_message(message))
-            
+
     def process_message(self, message):
         try:
             # Create a new event loop for this thread
@@ -312,29 +310,24 @@ class DesktopAssistant:
             history_text.config(state=tk.DISABLED)
 
     def quit_application(self):
-        if self.current_thread_id:
+        # Save if there is any message in the current thread
+        if self.current_thread_id and self.agent.get_thread_history(self.current_thread_id):
             # Create a new event loop for this thread
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            
             try:
                 # Generate summary
                 summary = loop.run_until_complete(self.agent.generate_summary(self.current_thread_id))
-                
-                # Save summary to file
-                timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-                filename = f"conversation_summary_{timestamp}.json"
+                # Use 'thread_{thread_id}.json' as filename (overwrite if exists)
+                filename = f"thread_{self.current_thread_id}.json"
                 filepath = os.path.join(self.summaries_dir, filename)
-                
                 with open(filepath, 'w', encoding='utf-8') as f:
                     json.dump(summary, f, ensure_ascii=False, indent=2)
-                
                 messagebox.showinfo("Summary Saved", f"Conversation summary has been saved to:\n{filepath}")
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to generate summary: {str(e)}")
             finally:
                 loop.close()
-        
         self.root.quit()
 
 if __name__ == "__main__":
