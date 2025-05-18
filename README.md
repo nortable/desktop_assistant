@@ -8,8 +8,6 @@ A modern, interactive desktop assistant with long-term memory, chat history, and
 - **Long-term Memory**: All conversations are saved as JSON summaries and can be reloaded at any time.
 - **Threaded Conversation History**: Browse, revisit, and continue any previous conversation thread.
 - **Multi-threaded Chat**: Start new conversations with "New Conversation" or continue existing ones.
-- **One-click Summary & Save**: Use the Quit button in the context menu to automatically summarize and save the current conversation for future reference.
-- **Easy GIF Customization**: Right-click the assistant and select "Change State" to switch between different GIFs/appearances.
 - **User-friendly Interface**: Clean, resizable chat window with color-coded messages and history navigation.
 
 ## Installation
