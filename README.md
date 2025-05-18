@@ -69,8 +69,13 @@ A modern, interactive desktop assistant with long-term memory, chat history, and
 
 
 ## Important notation
-- If the bot says:Sorry, I encountered an error: API Error: No choices in API response
-- I have no choice either. OpenRouter wants you to pay................
+- If the bot says: Sorry, I encountered an error: API Error: No choices in API response
+- I have no choice either, because most of the free model is still idiotic, you have to write the more meaningful prompt.
+
+## Free model you can change
+- deepseek/deepseek-chat-v3-0324:free
+- google/gemini-2.0-flash-exp:free
+- meta-llama/llama-4-maverick:free
   
 ## License
 MIT 
