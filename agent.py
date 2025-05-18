@@ -99,11 +99,9 @@ class ThreadedAgent:
     def _prepare_messages(self, history: list, current_messages: list) -> list:
         """Prepare messages for API call"""
         # Start with system message
-        content="""You are an assistant to listen to the user and help them with their problems.
-                   You should be emotional and empathetic to the user's problems.
-                   You must respond with at least 5 words.
-                   You cannot respond with empty content.
-        """
+        content = """You are a helpful AI assistant. Use the conversation history to provide contextual responses. 
+        Always respond to every part of the user's message and ensure you address all questions or requests they make. 
+        Be thorough and engaging in your responses."""
         system_message = SystemMessage(
             content=content
         )
