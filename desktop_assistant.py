@@ -8,6 +8,54 @@ from langchain_core.messages import HumanMessage, AIMessage, SystemMessage
 import json
 import datetime
 import glob
+import uuid
+
+class GIFPlayer:
+    def __init__(self, parent, gif_path):
+        self.parent = parent
+        self.frame = ttk.Frame(parent)
+        self.frame.pack()
+        
+        self.label = ttk.Label(self.frame)
+        self.label.pack()
+        
+        self.current_frame = 0
+        self.frames = []
+        self.duration = 100  # Default duration in ms
+        
+        try:
+            self.load_gif(gif_path)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to load GIF: {str(e)}")
+    
+    def load_gif(self, gif_path):
+        with Image.open(gif_path) as gif:
+            # Get duration from GIF metadata if available
+            try:
+                self.duration = gif.info.get('duration', 100)
+            except:
+                pass
+                
+            # Load frames
+            self.frames = []
+            for frame in range(gif.n_frames):
+                gif.seek(frame)
+                self.frames.append(ImageTk.PhotoImage(gif.copy()))
+            
+            # Start animation
+            self.animate()
+    
+    def animate(self):
+        if self.frames:
+            self.label.configure(image=self.frames[self.current_frame])
+            self.current_frame = (self.current_frame + 1) % len(self.frames)
+            self.parent.after(self.duration, self.animate)
+    
+    def stop(self):
+        if hasattr(self, 'label'):
+            self.label.destroy()
+        if hasattr(self, 'frame'):
+            self.frame.destroy()
 
 class DesktopAssistant:
     def __init__(self, root):
@@ -15,66 +63,27 @@ class DesktopAssistant:
         self.root.title("Desktop Assistant")
         self.root.attributes('-topmost', True)  
         
-        # Initialize the agent
+        # Initialize the agent and state
         self.agent = ThreadedAgent()
         self.current_thread_id = None
-        self.unsaved_changes = False  # Track if there are unsaved changes
+        self.unsaved_changes = False
         
-        # Create summaries directory if it doesn't exist
-        self.summaries_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'summaries')
-        os.makedirs(self.summaries_dir, exist_ok=True)
-
+        # Setup paths and directories
         script_dir = os.path.dirname(os.path.abspath(__file__))
+        self.summaries_dir = os.path.join(script_dir, 'summaries')
+        self.gif_path = os.path.join(script_dir, 'assets', 'role4', 'gif1.gif')
+        os.makedirs(self.summaries_dir, exist_ok=True)
         
-        self.gifs = {
-            'normal': os.path.join(script_dir, 'assets', 'role4', 'gif1.gif'),
-            'chat': os.path.join(script_dir, 'assets', 'role4', 'gif2.gif')
-        }
-        self.current_state = 'normal'
-        
-        self.create_main_window()
-
+        # Initialize UI
+        self.gif_player = GIFPlayer(self.root, self.gif_path)
         self.create_context_menu()
-        
         self.root.bind('<Button-3>', self.show_context_menu)
         
-    def create_main_window(self):
-        # Create a frame for the GIF
-        self.frame = ttk.Frame(self.root)
-        self.frame.pack()
+
         
-        # Load and display the initial GIF
-        self.load_gif(self.gifs[self.current_state])
-        
-    def load_gif(self, gif_path):
-        # Load the GIF
-        self.gif = Image.open(gif_path)
-        self.frames = []
-        
-        try:
-            while True:
-                self.frames.append(ImageTk.PhotoImage(self.gif.copy()))
-                self.gif.seek(len(self.frames))
-        except EOFError:
-            pass
-        
-        # Create label for GIF
-        if hasattr(self, 'gif_label'):
-            self.gif_label.destroy()
-        self.gif_label = ttk.Label(self.frame)
-        self.gif_label.pack()
-        
-        # Start animation
-        self.animate(0)
-        
-    def animate(self, frame_index):
-        if frame_index < len(self.frames):
-            self.gif_label.configure(image=self.frames[frame_index])
-            self.root.after(100, lambda: self.animate((frame_index + 1) % len(self.frames)))
-            
     def create_context_menu(self):
+        """Create the context menu"""
         self.context_menu = tk.Menu(self.root, tearoff=0)
-        self.context_menu.add_command(label="Change State", command=self.change_state)
         self.context_menu.add_command(label="Open Chat", command=self.open_chat)
         self.context_menu.add_separator()
         self.context_menu.add_command(label="Quit", command=self.quit_application)
@@ -82,99 +91,107 @@ class DesktopAssistant:
     def show_context_menu(self, event):
         self.context_menu.post(event.x_root, event.y_root)
         
-    def change_state(self):
-        self.current_state = 'chat' if self.current_state == 'normal' else 'normal'
-        self.load_gif(self.gifs[self.current_state])
-        
-    def open_chat(self):
-        # Create chat window
+    def _create_chat_window(self):
+        """Create the main chat window"""
         chat_window = tk.Toplevel(self.root)
         chat_window.title("Chat with Assistant")
         chat_window.geometry("600x700")
+        chat_window.protocol("WM_DELETE_WINDOW", lambda: self.on_chat_window_close(chat_window))
+        return chat_window
+
+    def _create_history_panel(self, parent):
+        """Create the left panel for conversation history"""
+        panel = ttk.Frame(parent, width=200)
+        panel.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
         
-        # Create main frame
-        main_frame = ttk.Frame(chat_window)
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        ttk.Label(panel, text="Conversation History").pack(pady=(0, 5))
         
-        # Create left panel for history list
-        left_panel = ttk.Frame(main_frame, width=200)
-        left_panel.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 10))
-        
-        # Add history list label
-        ttk.Label(left_panel, text="Conversation History").pack(pady=(0, 5))
-        
-        # Create listbox for history
-        self.history_listbox = tk.Listbox(left_panel, width=30, height=20)
+        self.history_listbox = tk.Listbox(panel, width=30, height=20)
         self.history_listbox.pack(fill=tk.BOTH, expand=True)
         self.history_listbox.bind('<<ListboxSelect>>', self.load_selected_conversation)
         
-        # Create right panel for chat
-        right_panel = ttk.Frame(main_frame)
-        right_panel.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        ttk.Button(panel, text="New Conversation", command=self.start_new_conversation).pack(pady=5)
+        return panel
+
+    def _create_chat_panel(self, parent):
+        """Create the right panel for chat interface"""
+        panel = ttk.Frame(parent)
+        panel.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         
-        # Create chat history display
-        history_frame = ttk.Frame(right_panel)
+        # Chat history display
+        history_frame = ttk.Frame(panel)
         history_frame.pack(fill=tk.BOTH, expand=True)
         
-        # Create text widget for chat history
         self.chat_history = tk.Text(history_frame, wrap=tk.WORD, state=tk.DISABLED)
         self.chat_history.pack(fill=tk.BOTH, expand=True)
         
-        # Tag config for user and assistant
-        self.chat_history.tag_configure("user", foreground="blue", justify="right", font=("Arial", 12, "bold"), lmargin1=80, lmargin2=80, rmargin=10, spacing3=10)
-        self.chat_history.tag_configure("assistant", foreground="green", justify="left", font=("Arial", 12), lmargin1=10, lmargin2=10, rmargin=80, spacing3=10)
-        self.chat_history.tag_configure("system", foreground="gray", font=("Arial", 11, "italic"), spacing3=10)
+        # Configure text tags
+        self._configure_chat_tags()
         
-        # Create scrollbar for chat history
+        # Scrollbar
         scrollbar = ttk.Scrollbar(history_frame, command=self.chat_history.yview)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         self.chat_history.config(yscrollcommand=scrollbar.set)
         
-        # Create input frame
-        input_frame = ttk.Frame(right_panel)
+        # Input area
+        self._create_input_area(panel)
+        return panel
+
+    def _configure_chat_tags(self):
+        """Configure text tags for chat messages"""
+        tags = {
+            "user": {"foreground": "blue", "justify": "right", "font": ("Arial", 12, "bold"), 
+                    "lmargin1": 80, "lmargin2": 80, "rmargin": 10, "spacing3": 10},
+            "assistant": {"foreground": "green", "justify": "left", "font": ("Arial", 12),
+                         "lmargin1": 10, "lmargin2": 10, "rmargin": 80, "spacing3": 10},
+            "system": {"foreground": "gray", "font": ("Arial", 11, "italic"), "spacing3": 10}
+        }
+        for tag, config in tags.items():
+            self.chat_history.tag_configure(tag, **config)
+
+    def _create_input_area(self, parent):
+        """Create the input area with entry and send button"""
+        input_frame = ttk.Frame(parent)
         input_frame.pack(fill=tk.X, pady=10)
         
-        # Create text entry
         self.message_entry = ttk.Entry(input_frame)
         self.message_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        
-        # Bind Enter key to send message
         self.message_entry.bind('<Return>', lambda event: self.send_message())
         
-        # Create send button
-        send_button = ttk.Button(input_frame, text="Send", command=self.send_message)
-        send_button.pack(side=tk.RIGHT, padx=5)
+        ttk.Button(input_frame, text="Send", command=self.send_message).pack(side=tk.RIGHT, padx=5)
+
+    def open_chat(self):
+        """Open the chat window and initialize all components"""
+        # Create main window and frame
+        chat_window = self._create_chat_window()
+        main_frame = ttk.Frame(chat_window)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
         
-        # Create new conversation button
-        new_conv_button = ttk.Button(left_panel, text="New Conversation", command=self.start_new_conversation)
-        new_conv_button.pack(pady=5)
+        # Create panels
+        self._create_history_panel(main_frame)
+        self._create_chat_panel(main_frame)
         
-        # Do not auto-generate thread_id here
-        # Only set thread_id when starting a new conversation or loading from history
-        
-        # Load conversation history into listbox
+        # Initialize conversation
         self.load_conversation_list()
-        
-        # Insert default welcome message from assistant (English) if no thread is loaded
-        if not self.current_thread_id:
-            self.current_thread_id = str(hash(str(datetime.datetime.now())))
-            welcome_message = "Hello! I am your desktop assistant. How can I help you today?"
-            self.update_chat_history(welcome_message, sender="assistant")
+        self.start_new_conversation()
         
     def load_conversation_list(self):
         """Load conversation history into the listbox, using thread numbers only."""
         self.history_listbox.delete(0, tk.END)
-        summaries_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'summaries')
-        if not os.path.exists(summaries_dir):
+        if not os.path.exists(self.summaries_dir):
             return
 
-        summary_files = sorted(glob.glob(os.path.join(summaries_dir, 'thread_*.json')), reverse=True)
-        self.summary_files = summary_files  # 保存顺序，供选中时查找
+        summary_files = sorted(glob.glob(os.path.join(self.summaries_dir, 'thread_*.json')), reverse=True)
+        self.summary_files = summary_files  
         for idx, file_path in enumerate(summary_files, 1):
             self.history_listbox.insert(tk.END, f"Thread {idx}")
 
     def load_selected_conversation(self, event):
         """Load the selected conversation from history"""
+        # Save current conversation before switching
+        if self.current_thread_id and self.unsaved_changes:
+            self.save_current_conversation()
+
         selection = self.history_listbox.curselection()
         if not selection:
             return
@@ -197,7 +214,6 @@ class DesktopAssistant:
                     self.update_chat_history(msg['content'], sender="assistant")
             
             # Update current thread ID
-            # Extract thread_id from filename
             basename = os.path.basename(selected_file)
             if basename.startswith('thread_') and basename.endswith('.json'):
                 self.current_thread_id = basename[len('thread_'):-len('.json')]
@@ -219,7 +235,11 @@ class DesktopAssistant:
 
     def start_new_conversation(self):
         """Start a new conversation"""
-        self.current_thread_id = str(hash(str(datetime.datetime.now())))
+        # Save current conversation before starting new one
+        if self.current_thread_id and self.unsaved_changes:
+            self.save_current_conversation()
+
+        self.current_thread_id = str(uuid.uuid4())
         self.unsaved_changes = True
         
         # Clear chat history
@@ -228,8 +248,10 @@ class DesktopAssistant:
         self.chat_history.config(state=tk.DISABLED)
         
         # Show welcome message
-        welcome_message = "Hello! I am your desktop assistant. How can I help you today?"
+        welcome_message = "Hello! How can I help you today?"
         self.update_chat_history(welcome_message, sender="assistant")
+
+        self.load_conversation_list()
 
     def send_message(self):
         message = self.message_entry.get().strip()  # Get and strip whitespace
@@ -265,6 +287,9 @@ class DesktopAssistant:
             self.chat_history.config(state=tk.DISABLED)
             self.update_chat_history(response, sender="assistant")
             
+            # Save conversation after each message exchange
+            self.save_current_conversation()
+            
             # Reset input
             self.message_entry.delete(0, tk.END)
             self.message_entry.config(state='normal')
@@ -291,43 +316,43 @@ class DesktopAssistant:
         self.chat_history.see(tk.END)
         self.chat_history.config(state=tk.DISABLED)
         
-    def show_history(self):
-        if self.current_thread_id:
-            history = self.agent.get_thread_history(self.current_thread_id)
-            history_window = tk.Toplevel(self.root)
-            history_window.title("Chat History")
-            history_window.geometry("400x300")
+    def save_current_conversation(self):
+        """Save the current conversation if there are unsaved changes"""
+        if not (self.current_thread_id and self.unsaved_changes):
+            return
             
-            history_text = tk.Text(history_window, wrap=tk.WORD)
-            history_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-            
-            for msg in history:
-                if isinstance(msg, HumanMessage):
-                    history_text.insert(tk.END, f"You: {msg.content}\n")
-                elif isinstance(msg, AIMessage):
-                    history_text.insert(tk.END, f"Assistant: {msg.content}\n")
-                    
-            history_text.config(state=tk.DISABLED)
-
-    def quit_application(self):
-        # Save if there is any message in the current thread
-        if self.current_thread_id and self.agent.get_thread_history(self.current_thread_id):
+        try:
             # Create a new event loop for this thread
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
-            try:
-                # Generate summary
-                summary = loop.run_until_complete(self.agent.generate_summary(self.current_thread_id))
-                # Use 'thread_{thread_id}.json' as filename (overwrite if exists)
-                filename = f"thread_{self.current_thread_id}.json"
-                filepath = os.path.join(self.summaries_dir, filename)
-                with open(filepath, 'w', encoding='utf-8') as f:
-                    json.dump(summary, f, ensure_ascii=False, indent=2)
-                messagebox.showinfo("Summary Saved", f"Conversation summary has been saved to:\n{filepath}")
-            except Exception as e:
-                messagebox.showerror("Error", f"Failed to generate summary: {str(e)}")
-            finally:
-                loop.close()
+            
+            # Save conversation
+            conversation = loop.run_until_complete(self.agent.save_conversation(self.current_thread_id))
+            
+            # Save to file
+            filename = f"thread_{self.current_thread_id}.json"
+            filepath = os.path.join(self.summaries_dir, filename)
+            with open(filepath, 'w', encoding='utf-8') as f:
+                json.dump(conversation, f, ensure_ascii=False, indent=2)
+                
+            self.unsaved_changes = False
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to save conversation: {str(e)}")
+        finally:
+            loop.close()
+            
+        # Refresh conversation list
+        self.load_conversation_list()
+
+    def on_chat_window_close(self, chat_window):
+        """Handle chat window close event"""
+        self.save_current_conversation()
+        chat_window.destroy()
+
+    def quit_application(self):
+        # Save if there is any message in the current thread
+        self.save_current_conversation()
         self.root.quit()
 
 if __name__ == "__main__":
