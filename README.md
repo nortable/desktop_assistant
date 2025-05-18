@@ -67,5 +67,10 @@ A modern, interactive desktop assistant with long-term memory, chat history, and
 - Python 3.8+
 - See `requirements.txt` for all dependencies (Tkinter, Pillow, langchain, openai, etc.)
 
+
+## Important notation
+- If the bot says:Sorry, I encountered an error: API Error: No choices in API response
+- I have no choice either. OpenRouter wants you to pay................
+  
 ## License
 MIT 
